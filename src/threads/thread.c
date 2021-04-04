@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -23,6 +24,10 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* List of processes in THREAD_WAIT state, that is, processes
+   that are waiting to ready but not actually ready. */
+static struct list waiting_list;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -91,6 +96,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&waiting_list);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -322,6 +328,35 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
+void
+thread_wait (int64_t tick, list_less_func* tick_compare) 
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
+  
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+  cur->wait_tick = tick;
+  if (cur != idle_thread) {
+	if(list_empty(&waiting_list)){
+		list_push_front (&waiting_list, &cur->elem);
+	}
+	else{
+		struct list_elem* next = list_begin(&waiting_list);
+		if(!tick_compare(list_begin(&waiting_list),&cur->elem,NULL)){
+			list_push_front (&waiting_list, &cur->elem);
+		}
+		else{
+			list_insert_ordered(&waiting_list,&cur->elem,tick_compare,NULL);
+		}
+	}
+  }
+  cur->status = THREAD_WAIT;
+  schedule ();
+  intr_set_level (old_level);
+}
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void
@@ -485,6 +520,19 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
+/*
+ Check need to awake thread from waiting_list.
+*/
+bool
+need_awake()
+{
+	if (list_empty (&waiting_list))
+		return false;
+	struct thread *cur = running_thread ();
+	struct thread* head = list_entry (list_begin (&waiting_list), struct thread, elem);
+	return timer_elapsed(head->wait_tick)>0;
+}
+
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it
@@ -494,7 +542,11 @@ static struct thread *
 next_thread_to_run (void) 
 {
   if (list_empty (&ready_list))
+  {
+	if(need_awake())
+	  return list_entry (list_pop_front (&waiting_list), struct thread, elem);
     return idle_thread;
+  }
   else
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }

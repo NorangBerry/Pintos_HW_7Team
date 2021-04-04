@@ -66,7 +66,9 @@ print_stacktrace(struct thread *t, void *aux UNUSED)
     case THREAD_READY:  
       status = "READY";
       break;
-
+	case THREAD_WAIT:
+	  status = "WAIT";
+      break;
     case THREAD_BLOCKED:  
       status = "BLOCKED";
       break;

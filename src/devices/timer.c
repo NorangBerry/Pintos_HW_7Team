@@ -84,6 +84,16 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+
+bool tick_compare (const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux)
+{
+	const struct thread *_a = list_entry(a, struct thread, elem);
+	const struct thread *_b = list_entry(b, struct thread, elem);
+	return timer_elapsed(_a->wait_tick) > timer_elapsed(_b->wait_tick);
+}
+
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
@@ -93,7 +103,9 @@ timer_sleep (int64_t ticks)
 
   ASSERT (intr_get_level () == INTR_ON);
   while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  {
+    thread_wait (start + ticks, tick_compare);
+  }
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
