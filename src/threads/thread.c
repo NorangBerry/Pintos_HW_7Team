@@ -11,7 +11,6 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -343,7 +342,6 @@ thread_wait (int64_t tick, list_less_func* tick_compare)
 		list_push_front (&waiting_list, &cur->elem);
 	}
 	else{
-		struct list_elem* next = list_begin(&waiting_list);
 		if(!tick_compare(list_begin(&waiting_list),&cur->elem,NULL)){
 			list_push_front (&waiting_list, &cur->elem);
 		}
@@ -521,16 +519,19 @@ alloc_frame (struct thread *t, size_t size)
 }
 
 /*
- Check need to awake thread from waiting_list.
+	Move from waiting queue to ready queue
 */
-bool
-need_awake()
+void
+awake_thread(tick_calc_func* timer_elapsed)
 {
 	if (list_empty (&waiting_list))
-		return false;
-	struct thread *cur = running_thread ();
+		return;
 	struct thread* head = list_entry (list_begin (&waiting_list), struct thread, elem);
-	return timer_elapsed(head->wait_tick)>0;
+	if(timer_elapsed(head->wait_tick)>=0)
+	{
+		head->status = THREAD_READY;
+		list_push_back (&ready_list, list_pop_front (&waiting_list));
+	}
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -543,8 +544,6 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
   {
-	if(need_awake())
-	  return list_entry (list_pop_front (&waiting_list), struct thread, elem);
     return idle_thread;
   }
   else

@@ -125,10 +125,12 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
-void thread_yield (void);
+typedef int64_t tick_calc_func (int64_t tick);
 void thread_wait (int64_t tick, list_less_func* tick_compare); //for sleep function
 
+void thread_exit (void) NO_RETURN;
+void thread_yield (void);
+void awake_thread(tick_calc_func* func);
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);

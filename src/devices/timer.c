@@ -84,7 +84,11 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-
+/*
+	timer_elapsed(_a->wait_tick) return minus value.
+	return true means that 'a' should excute faster than 'b'.
+	Assume that tick can be overflow.
+*/
 bool tick_compare (const struct list_elem *a,
                              const struct list_elem *b,
                              void *aux)
@@ -184,6 +188,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  awake_thread (&timer_elapsed);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
