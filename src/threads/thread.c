@@ -524,14 +524,21 @@ alloc_frame (struct thread *t, size_t size)
 void
 awake_thread(tick_calc_func* timer_elapsed)
 {
-	if (list_empty (&waiting_list))
-		return;
-	struct thread* head = list_entry (list_begin (&waiting_list), struct thread, elem);
-	if(timer_elapsed(head->wait_tick)>=0)
+	enum intr_level old_level = intr_disable ();
+  	while(true)
 	{
-		head->status = THREAD_READY;
-		list_push_back (&ready_list, list_pop_front (&waiting_list));
+		if (list_empty (&waiting_list))
+			break;
+		struct thread* head = list_entry (list_begin (&waiting_list), struct thread, elem);
+		if(timer_elapsed(head->wait_tick)>=0)
+		{
+			head->status = THREAD_READY;
+			list_push_back (&ready_list, list_pop_front (&waiting_list));
+		}
+		else
+			 break;
 	}
+	intr_set_level (old_level);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
