@@ -213,17 +213,29 @@ thread_create (const char *name, int priority,
   intr_set_level (old_level);
   /* Add to run queue. */
   thread_unblock (t);
-  if(thread_get_priority() < priority){
-    if(!intr_context()){
-      thread_yield();
-    }
-    else{
-      intr_yield_on_return();
-    }
-  }
+  thread_priority_change();
   return tid;
 }
 
+void thread_priority_change(){
+  enum intr_level old_level = intr_disable ();
+
+  struct list_elem * prior_waiter = list_max(&ready_list, comp_func, NULL);
+  struct thread * prior_thread = list_entry(prior_waiter, struct thread, elem);
+  if(thread_get_priority() < prior_thread->priority){
+    if(!intr_context()){
+      intr_set_level(old_level);
+      thread_yield();
+    }
+    else{
+      intr_set_level(old_level);
+      intr_yield_on_return();
+    }
+  }
+  else{
+    intr_set_level(old_level);
+  }
+}
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
 
@@ -384,6 +396,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_priority_change();
 }
 
 /* Returns the current thread's priority. */
