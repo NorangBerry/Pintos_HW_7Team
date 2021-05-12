@@ -121,20 +121,20 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)){
     struct list_elem * prior_waiter = list_max(&sema->waiters, comp_func, NULL);
-	prior_thread = list_entry(prior_waiter, struct thread, elem);
-	list_remove(prior_waiter);
-	thread_unblock(prior_thread);
+    prior_thread = list_entry(prior_waiter, struct thread, elem);
+    list_remove(prior_waiter);
+    thread_unblock(prior_thread);
   }
   sema->value++;
   
-  if(prior_thread != NULL && thread_get_priority() < prior_thread->priority)
-  {
+  intr_set_level(old_level);
+  if(prior_thread != NULL && thread_get_priority() < prior_thread->priority){
     intr_set_level(old_level);
-	if(!intr_context())
-		thread_yield();
-	else intr_yield_on_return();
-  }else intr_set_level(old_level);
-
+    if(!intr_context())
+      thread_yield();
+    else 
+      intr_yield_on_return();
+  }
 }
 
 static bool
@@ -230,7 +230,8 @@ lock_acquire (struct lock *lock)
 
   current_thread->waiting_lock = lock;
 
-  if(lock->holder == NULL) lock->max_priority = current_thread->priority;
+  if(lock->holder == NULL) 
+    lock->max_priority = current_thread->priority;
 
   /*Priority donation*/
 
@@ -238,16 +239,16 @@ lock_acquire (struct lock *lock)
   while(cpy_lock->holder != NULL && current_thread->priority > cpy_lock->holder->priority){
     cpy_lock->holder->priority = current_thread->priority;
 
-	if(cpy_lock->max_priority < current_thread->priority){
-	  cpy_lock->max_priority = current_thread->priority;
+    if(cpy_lock->max_priority < current_thread->priority){
+      cpy_lock->max_priority = current_thread->priority;
 
-	  list_remove(&cpy_lock->elem);
-	  list_insert_ordered(&cpy_lock->holder->holding_locks, &cpy_lock->elem, comp_locks, NULL);
-	}
+      list_remove(&cpy_lock->elem);
+      list_insert_ordered(&cpy_lock->holder->holding_locks, &cpy_lock->elem, comp_locks, NULL);
+    }
 
-	if(cpy_lock->holder->waiting_lock != NULL){
-	  cpy_lock = cpy_lock->holder->waiting_lock;
-	}else break;
+    if(cpy_lock->holder->waiting_lock != NULL){
+      cpy_lock = cpy_lock->holder->waiting_lock;
+    }else break;
   }
   intr_set_level(old_level);
 
@@ -256,8 +257,8 @@ lock_acquire (struct lock *lock)
   if(!list_empty(&lock->semaphore.waiters))
   {
     struct list_elem * prior_waiter = list_max(&lock->semaphore.waiters, comp_func, NULL);
-	struct thread *t = list_entry(prior_waiter, struct thread, elem);
-	lock->max_priority = t->priority;
+    struct thread *t = list_entry(prior_waiter, struct thread, elem);
+    lock->max_priority = t->priority;
   }
   current_thread->waiting_lock = NULL;
   list_insert_ordered(&current_thread->holding_locks, &lock->elem, comp_locks, NULL);
@@ -290,7 +291,7 @@ lock_try_acquire (struct lock *lock)
   if (success){
     lock->holder = thread_current ();
     lock->holder->waiting_lock = NULL;
-	list_insert_ordered(&lock->holder->holding_locks, &lock->elem, comp_locks, NULL);
+    list_insert_ordered(&lock->holder->holding_locks, &lock->elem, comp_locks, NULL);
   }
   return success;
 }
@@ -318,13 +319,13 @@ lock_release (struct lock *lock)
   if(list_empty(&current_thread->holding_locks)) current_thread->priority = current_thread->base_priority;
   else{
     old_level = intr_disable();
-	int base_pri = current_thread->base_priority;
-	int max_pri = list_entry(list_front(&current_thread->holding_locks), struct lock, elem)->max_priority;
+    int base_pri = current_thread->base_priority;
+    int max_pri = list_entry(list_front(&current_thread->holding_locks), struct lock, elem)->max_priority;
 
-	if(base_pri >= max_pri)
-		current_thread->priority = base_pri;
-	else current_thread->priority = max_pri;
-	intr_set_level(old_level);
+    if(base_pri >= max_pri)
+        current_thread->priority = base_pri;
+    else current_thread->priority = max_pri;
+    intr_set_level(old_level);
   }
 
   thread_yield();
@@ -345,9 +346,9 @@ lock_held_by_current_thread (const struct lock *lock)
 struct semaphore_elem 
   {
     struct list_elem elem;              /* List element. */
-    struct semaphore semaphore;			/* This semaphore. */
+    struct semaphore semaphore;            /* This semaphore. */
 
-	int priority;
+    int priority;
   };
 
 /* Initializes condition variable COND.  A condition variable
