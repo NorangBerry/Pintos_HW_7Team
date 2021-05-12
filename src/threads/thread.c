@@ -15,6 +15,7 @@
 #include "userprog/process.h"
 #endif
 
+static bool comp_func (const struct list_elem *a, const struct list_elem *b, void *aux);
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -210,10 +211,16 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   intr_set_level (old_level);
-
   /* Add to run queue. */
   thread_unblock (t);
-
+  if(thread_get_priority() < priority){
+    if(!intr_context()){
+      thread_yield();
+    }
+    else{
+      intr_yield_on_return();
+    }
+  }
   return tid;
 }
 
@@ -554,7 +561,20 @@ next_thread_to_run (void)
     return idle_thread;
   }
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  {
+    struct list_elem * prior_waiter = list_max(&ready_list, comp_func, NULL);
+    list_remove(prior_waiter);
+    return list_entry (prior_waiter, struct thread, elem);
+  }
+}
+
+static bool
+comp_func (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread * a_thread = list_entry(a, struct thread, elem);
+  struct thread * b_thread = list_entry(b, struct thread, elem);
+
+  return a_thread->priority < b_thread->priority;
 }
 
 /* Completes a thread switch by activating the new thread's page
