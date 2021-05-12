@@ -32,6 +32,11 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static bool comp_func (const struct list_elem *a, const struct list_elem *b, void *aux);
+static bool comp_locks (const struct list_elem *a, const struct list_elem *b, void *aux);
+static bool comp_sema (const struct list_elem *a, const struct list_elem *b, void *aux);
+
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -109,15 +114,36 @@ void
 sema_up (struct semaphore *sema) 
 {
   enum intr_level old_level;
+  struct thread * prior_thread = NULL;
 
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  if (!list_empty (&sema->waiters)){
+    struct list_elem * prior_waiter = list_max(&sema->waiters, comp_func, NULL);
+	prior_thread = list_entry(prior_waiter, struct thread, elem);
+	list_remove(prior_waiter);
+	thread_unblock(prior_thread);
+  }
   sema->value++;
-  intr_set_level (old_level);
+  
+  if(prior_thread != NULL && thread_get_priority() < prior_thread->priority)
+  {
+    intr_set_level(old_level);
+	if(!intr_context())
+		thread_yield();
+	else intr_yield_on_return();
+  }else intr_set_level(old_level);
+
+}
+
+static bool
+comp_func (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread * a_thread = list_entry(a, struct thread, elem);
+  struct thread * b_thread = list_entry(b, struct thread, elem);
+
+  return a_thread->priority < b_thread->priority;
 }
 
 static void sema_test_helper (void *sema_);
@@ -179,6 +205,8 @@ lock_init (struct lock *lock)
 
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
+
+  lock->max_priority = 0;
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -196,8 +224,52 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread * current_thread = thread_current();
+  struct lock * cpy_lock = lock;
+  enum intr_level old_level;
+
+  current_thread->waiting_lock = lock;
+
+  if(lock->holder == NULL) lock->max_priority = current_thread->priority;
+
+  /*Priority donation*/
+
+  old_level = intr_disable();
+  while(cpy_lock->holder != NULL && current_thread->priority > cpy_lock->holder->priority){
+    cpy_lock->holder->priority = current_thread->priority;
+
+	if(cpy_lock->max_priority < current_thread->priority){
+	  cpy_lock->max_priority = current_thread->priority;
+
+	  list_remove(&cpy_lock->elem);
+	  list_insert_ordered(&cpy_lock->holder->holding_locks, &cpy_lock->elem, comp_locks, NULL);
+	}
+
+	if(cpy_lock->holder->waiting_lock != NULL){
+	  cpy_lock = cpy_lock->holder->waiting_lock;
+	}else break;
+  }
+  intr_set_level(old_level);
+
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  if(!list_empty(&lock->semaphore.waiters))
+  {
+    struct list_elem * prior_waiter = list_max(&lock->semaphore.waiters, comp_func, NULL);
+	struct thread *t = list_entry(prior_waiter, struct thread, elem);
+	lock->max_priority = t->priority;
+  }
+  current_thread->waiting_lock = NULL;
+  list_insert_ordered(&current_thread->holding_locks, &lock->elem, comp_locks, NULL);
+}
+
+static bool
+comp_locks(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct lock * a_lock = list_entry(a, struct lock, elem);
+  struct lock * b_lock = list_entry(b, struct lock, elem);
+
+  return a_lock->max_priority > b_lock->max_priority;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -215,8 +287,11 @@ lock_try_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   success = sema_try_down (&lock->semaphore);
-  if (success)
+  if (success){
     lock->holder = thread_current ();
+    lock->holder->waiting_lock = NULL;
+	list_insert_ordered(&lock->holder->holding_locks, &lock->elem, comp_locks, NULL);
+  }
   return success;
 }
 
@@ -231,8 +306,28 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  list_remove(&lock->elem);
+  if(list_empty(&(lock->semaphore.waiters))) lock->max_priority = 0;
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  struct thread * current_thread = thread_current();
+  enum intr_level old_level;
+
+  if(list_empty(&current_thread->holding_locks)) current_thread->priority = current_thread->base_priority;
+  else{
+    old_level = intr_disable();
+	int base_pri = current_thread->base_priority;
+	int max_pri = list_entry(list_front(&current_thread->holding_locks), struct lock, elem)->max_priority;
+
+	if(base_pri >= max_pri)
+		current_thread->priority = base_pri;
+	else current_thread->priority = max_pri;
+	intr_set_level(old_level);
+  }
+
+  thread_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -250,7 +345,9 @@ lock_held_by_current_thread (const struct lock *lock)
 struct semaphore_elem 
   {
     struct list_elem elem;              /* List element. */
-    struct semaphore semaphore;         /* This semaphore. */
+    struct semaphore semaphore;			/* This semaphore. */
+
+	int priority;
   };
 
 /* Initializes condition variable COND.  A condition variable
@@ -295,10 +392,20 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  waiter.priority = thread_current()->priority;
+  list_insert_ordered(&cond->waiters, &waiter.elem, comp_sema, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
+}
+
+static bool
+comp_sema (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct semaphore_elem * a_sema = list_entry(a, struct semaphore_elem, elem);
+  struct semaphore_elem * b_sema = list_entry(b, struct semaphore_elem, elem);
+
+  return a_sema->priority > b_sema->priority;
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then
