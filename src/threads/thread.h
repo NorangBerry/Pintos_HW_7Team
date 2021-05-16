@@ -95,6 +95,7 @@ struct thread
    struct lock* waiting_lock;
    struct list holding_locks;
    int base_priority;
+   bool is_priority_changed;
    /* Shared between thread.c and synch.c. */
    struct list_elem elem;              /* List element. */
 
@@ -116,6 +117,7 @@ void thread_init (void);
 void thread_start (void);
 
 void thread_tick (void);
+void thread_priority_change(void);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
