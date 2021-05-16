@@ -240,7 +240,7 @@ lock_acquire (struct lock *lock)
     struct lock * cpy_lock = lock;
     while(cpy_lock->holder != NULL && current_thread->priority > cpy_lock->holder->priority){
       cpy_lock->holder->priority = current_thread->priority;
-      current_thread->is_priority_changed = true;
+      cpy_lock->holder->is_priority_changed = true;
 
       if(cpy_lock->max_priority < current_thread->priority){
         cpy_lock->max_priority = current_thread->priority;
