@@ -19,6 +19,13 @@ enum thread_status
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
+
+#ifndef pid_t_defined
+typedef int pid_t;
+#define pid_t_defined
+
+#endif
+
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
 
 /* Thread priorities. */
@@ -101,12 +108,30 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
+    uint32_t *pagedir;				   /* Page directory. */
+
+	bool is_loaded;
+	struct list child_process_list;
+	struct semaphore exec_sema;
+	pid_t ppid;
+
+	struct list fd_table;
+	struct file * exec_file;
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+struct child_process
+{
+  pid_t pid;
+  int exit_status;
+  bool is_exited;
+  bool is_waiting;
+  struct semaphore wait_sema;
+  struct list_elem elem;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -147,5 +172,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread * search_by_pid(pid_t);
 
 #endif /* threads/thread.h */

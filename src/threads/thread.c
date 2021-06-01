@@ -75,6 +75,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+struct thread * search_by_pid(pid_t pid);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -104,6 +105,8 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  list_push_back(&all_list, &initial_thread->allelem);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -212,6 +215,7 @@ thread_create (const char *name, int priority,
 
   intr_set_level (old_level);
   /* Add to run queue. */
+  list_push_back(&all_list, &t->allelem);
   thread_unblock (t);
   thread_priority_change();
   return tid;
@@ -322,6 +326,9 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  while(!list_empty(&thread_current()->holding_locks)){
+    lock_release(list_entry(list_front(&thread_current()->holding_locks), struct lock, elem));
+  }
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -339,8 +346,13 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
+  if(list_empty(&ready_list)){
+    intr_set_level(old_level);
+	return;
+  }
+
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem, comp_func, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -535,6 +547,13 @@ init_thread (struct thread *t, const char *name, int priority)
   t->is_priority_changed = false;
   t->magic = THREAD_MAGIC;
   list_init (&t->holding_locks);
+
+  t->is_loaded = false;
+  list_init(&t->child_process_list);
+  sema_init(&t->exec_sema,0);
+  t->exec_file = NULL;
+  t->ppid = -1;
+  list_init(&t->fd_table);
   list_push_back (&all_list, &t->allelem);
 }
 
@@ -601,6 +620,26 @@ comp_func (const struct list_elem *a, const struct list_elem *b, void *aux UNUSE
   struct thread * b_thread = list_entry(b, struct thread, elem);
 
   return a_thread->priority < b_thread->priority;
+}
+
+struct thread * search_by_pid(pid_t pid){
+  enum intr_level old_level;
+  struct list_elem *e;
+
+  old_level = intr_disable();
+  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
+  {
+    struct thread *t = list_entry(e, struct thread, allelem);
+	if(t->tid == pid){
+
+	  intr_set_level(old_level);
+	  return t;
+
+	}
+  }
+
+  intr_set_level(old_level);
+  return NULL;
 }
 
 /* Completes a thread switch by activating the new thread's page
