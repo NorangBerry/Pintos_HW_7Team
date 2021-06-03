@@ -35,6 +35,7 @@ process_execute (const char *file_name)
   tid_t tid;
 
   char *fn_trash;
+  char *real_file_name;
   char *token;
   char *save_ptr;
 
@@ -51,10 +52,18 @@ process_execute (const char *file_name)
   return TID_ERROR;
   }
   strlcpy(fn_trash, file_name, PGSIZE);
-  token = strtok_r(fn_trash, " ", &save_ptr);
+  real_file_name = strtok_r(fn_trash, " ", &save_ptr);
+  
+  for(token = strtok_r(fn_trash, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+    if (filesys_open(token) == NULL) {
+      return -1;
+    }
+  }
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
+  enum intr_level old_level = intr_disable();
+
+ /* Create a new thread to execute FILE_NAME. */
+  tid = thread_create (real_file_name, PRI_DEFAULT, start_process, fn_copy);
 
   palloc_free_page(fn_trash);
 
@@ -68,13 +77,6 @@ process_execute (const char *file_name)
     return TID_ERROR;
   }
 
-  sema_down(&child->exec_sema);
-
-  if(!child->is_loaded){
-    thread_unblock(child);
-    return TID_ERROR;
-  }
-
   struct child_process * child_proc = malloc(sizeof(struct child_process));
   child_proc->pid = child->tid;
   child_proc->exit_status = -1;
@@ -84,7 +86,7 @@ process_execute (const char *file_name)
   sema_init(&child_proc->mem_sema, 0);
   child->parent_tid = thread_current()->tid;
   list_push_back(&thread_current()->child_process_list, &child_proc->elem);
-  thread_unblock(child);
+  intr_set_level(old_level);
 
 fail:
   return tid;
@@ -107,10 +109,6 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
   thread_current()->is_loaded = success;
-  sema_up(&thread_current()->exec_sema);
-  old_level = intr_disable();
-  thread_block();
-  intr_set_level(old_level);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -150,12 +148,10 @@ process_wait (tid_t child_tid)
   for(e = list_begin(&current_thread->child_process_list); e != list_end(&current_thread->child_process_list); e = list_next(e))
   {
     t = list_entry(e, struct child_process, elem);
-  if(t->pid == child_tid){
-    break;
+    if(t->pid == child_tid){
+      break;
+    }
   }
-  }
-
-  intr_set_level(old_level);
 
   if(t == NULL || t->pid != child_tid){
     return -1;
@@ -166,13 +162,16 @@ process_wait (tid_t child_tid)
   }
 
   if(!t->is_exited){
+    intr_set_level(old_level);
     sema_down(&t->wait_sema);
+  }
+  else{
+    intr_set_level(old_level);
   }
 
   list_remove(&t->elem);
   sema_up(&t->mem_sema);
   ret = t->exit_status;
-  free(t);
 
   return ret;
 }
@@ -190,16 +189,16 @@ process_exit (void)
   }
   lock_release(&filesys_lock);
 
-  while(!list_empty(&cur->child_process_list)){
-    free(list_entry(list_pop_front(&cur->child_process_list), struct child_process, elem));
-  }
+  // while(!list_empty(&cur->child_process_list)){
+  //   free(list_entry(list_pop_front(&cur->child_process_list), struct child_process, elem));
+  // }
 
   while(!list_empty(&cur->fd_table)){
     struct fd * file_desc = list_entry(list_pop_front(&cur->fd_table), struct fd, elem);
-  lock_acquire(&filesys_lock);
-  file_close(file_desc->file);
-  lock_release(&filesys_lock);
-  free(file_desc);
+    lock_acquire(&filesys_lock);
+    file_close(file_desc->file);
+    lock_release(&filesys_lock);
+    free(file_desc);
   }
 
   /* Destroy the current process's page directory and switch back
@@ -217,6 +216,25 @@ process_exit (void)
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+    }
+    struct thread * parent_thread = NULL;
+    struct child_process * t = NULL;
+    if(cur->parent_tid != -1){
+      parent_thread = search_by_tid(cur->parent_tid);
+      enum intr_level old_level = intr_disable();
+      struct list_elem * e = NULL;
+      for(e = list_begin(&parent_thread->child_process_list); e != list_end(&parent_thread->child_process_list); e = list_next(e))
+      {
+        t = list_entry(e, struct child_process, elem);
+        if(t->pid == cur->tid){
+          break;
+        }
+      }
+      intr_set_level(old_level);
+      if(t != NULL && t->pid == cur->tid){
+        sema_up(&t->wait_sema);
+        sema_down(&t->mem_sema);
+      }
     }
 }
 
