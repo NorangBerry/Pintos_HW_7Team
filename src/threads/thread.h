@@ -128,6 +128,7 @@ struct child_process
   bool is_exited;
   bool is_waiting;
   struct semaphore wait_sema;
+  struct semaphore mem_sema;
   struct list_elem elem;
 };
 

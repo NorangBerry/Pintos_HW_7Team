@@ -107,6 +107,7 @@ void exit(int status){
     t->exit_status = status;
     t->is_exited = true;
     sema_up(&t->wait_sema);
+    sema_down(&t->mem_sema);
   }
 
   thread_exit();

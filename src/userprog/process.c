@@ -72,7 +72,7 @@ process_execute (const char *file_name)
 
   if(!child->is_loaded){
     thread_unblock(child);
-  return TID_ERROR;
+    return TID_ERROR;
   }
 
   struct child_process * child_proc = malloc(sizeof(struct child_process));
@@ -81,6 +81,7 @@ process_execute (const char *file_name)
   child_proc->is_exited = false;
   child_proc->is_waiting = false;
   sema_init(&child_proc->wait_sema, 0);
+  sema_init(&child_proc->mem_sema, 0);
   child->parent_tid = thread_current()->tid;
   list_push_back(&thread_current()->child_process_list, &child_proc->elem);
   thread_unblock(child);
@@ -169,6 +170,7 @@ process_wait (tid_t child_tid)
   }
 
   list_remove(&t->elem);
+  sema_up(&t->mem_sema);
   ret = t->exit_status;
   free(t);
 
