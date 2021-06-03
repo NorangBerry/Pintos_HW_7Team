@@ -75,7 +75,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-struct thread * search_by_pid(pid_t pid);
+struct thread * search_by_tid(pid_t pid);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -348,7 +348,7 @@ thread_yield (void)
   old_level = intr_disable ();
   if(list_empty(&ready_list)){
     intr_set_level(old_level);
-	return;
+    return;
   }
 
   if (cur != idle_thread) 
@@ -369,17 +369,17 @@ thread_wait (int64_t tick, list_less_func* tick_compare)
   old_level = intr_disable ();
   cur->wait_tick = tick;
   if (cur != idle_thread) {
-	if(list_empty(&waiting_list)){
-		list_push_front (&waiting_list, &cur->elem);
-	}
-	else{
-		if(!tick_compare(list_begin(&waiting_list),&cur->elem,NULL)){
-			list_push_front (&waiting_list, &cur->elem);
-		}
-		else{
-			list_insert_ordered(&waiting_list,&cur->elem,tick_compare,NULL);
-		}
-	}
+    if(list_empty(&waiting_list)){
+        list_push_front (&waiting_list, &cur->elem);
+    }
+    else{
+        if(!tick_compare(list_begin(&waiting_list),&cur->elem,NULL)){
+            list_push_front (&waiting_list, &cur->elem);
+        }
+        else{
+            list_insert_ordered(&waiting_list,&cur->elem,tick_compare,NULL);
+        }
+    }
   }
   cur->status = THREAD_WAIT;
   schedule ();
@@ -552,7 +552,7 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->child_process_list);
   sema_init(&t->exec_sema,0);
   t->exec_file = NULL;
-  t->ppid = -1;
+  t->parent_tid = -1;
   list_init(&t->fd_table);
   list_push_back (&all_list, &t->allelem);
 }
@@ -571,26 +571,26 @@ alloc_frame (struct thread *t, size_t size)
 }
 
 /*
-	Move from waiting queue to ready queue
+    Move from waiting queue to ready queue
 */
 void
 awake_thread(tick_calc_func* timer_elapsed)
 {
-	enum intr_level old_level = intr_disable ();
-  	while(true)
-	{
-		if (list_empty (&waiting_list))
-			break;
-		struct thread* head = list_entry (list_begin (&waiting_list), struct thread, elem);
-		if(timer_elapsed(head->wait_tick)>=0)
-		{
-			head->status = THREAD_READY;
-			list_push_back (&ready_list, list_pop_front (&waiting_list));
-		}
-		else
-			 break;
-	}
-	intr_set_level (old_level);
+    enum intr_level old_level = intr_disable ();
+      while(true)
+    {
+        if (list_empty (&waiting_list))
+            break;
+        struct thread* head = list_entry (list_begin (&waiting_list), struct thread, elem);
+        if(timer_elapsed(head->wait_tick)>=0)
+        {
+            head->status = THREAD_READY;
+            list_push_back (&ready_list, list_pop_front (&waiting_list));
+        }
+        else
+             break;
+    }
+    intr_set_level (old_level);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -622,7 +622,7 @@ comp_func (const struct list_elem *a, const struct list_elem *b, void *aux UNUSE
   return a_thread->priority < b_thread->priority;
 }
 
-struct thread * search_by_pid(pid_t pid){
+struct thread * search_by_tid(tid_t pid){
   enum intr_level old_level;
   struct list_elem *e;
 
@@ -630,12 +630,12 @@ struct thread * search_by_pid(pid_t pid){
   for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
   {
     struct thread *t = list_entry(e, struct thread, allelem);
-	if(t->tid == pid){
+    if(t->tid == pid){
 
-	  intr_set_level(old_level);
-	  return t;
+      intr_set_level(old_level);
+      return t;
 
-	}
+    }
   }
 
   intr_set_level(old_level);

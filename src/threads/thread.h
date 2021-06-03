@@ -11,7 +11,7 @@ enum thread_status
   {
     THREAD_RUNNING,     /* Running thread. */
     THREAD_READY,       /* Not running but ready to run. */
-	THREAD_WAIT,       /* Not readying but wait to ready. */
+    THREAD_WAIT,       /* Not readying but wait to ready. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
     THREAD_DYING        /* About to be destroyed. */
   };
@@ -97,7 +97,7 @@ struct thread
    char name[16];                      /* Name (for debugging purposes). */
    uint8_t *stack;                     /* Saved stack pointer. */
    int priority;                       /* Priority. */
-	int64_t wait_tick;					/* sleep time check */
+    int64_t wait_tick;                    /* sleep time check */
    struct list_elem allelem;           /* List element for all threads list. */
    struct lock* waiting_lock;
    struct list holding_locks;
@@ -106,18 +106,16 @@ struct thread
    /* Shared between thread.c and synch.c. */
    struct list_elem elem;              /* List element. */
 
-#ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;				   /* Page directory. */
+    uint32_t *pagedir;                   /* Page directory. */
 
-	bool is_loaded;
-	struct list child_process_list;
-	struct semaphore exec_sema;
-	pid_t ppid;
+    bool is_loaded;
+    struct list child_process_list;
+    struct semaphore exec_sema;
+    tid_t parent_tid;
 
-	struct list fd_table;
-	struct file * exec_file;
-#endif
+    struct list fd_table;
+    struct file * exec_file;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -173,6 +171,6 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-struct thread * search_by_pid(pid_t);
+struct thread * search_by_tid(tid_t);
 
 #endif /* threads/thread.h */

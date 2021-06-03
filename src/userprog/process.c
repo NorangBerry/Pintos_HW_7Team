@@ -48,7 +48,7 @@ process_execute (const char *file_name)
   fn_trash = palloc_get_page(0);
   if(fn_trash == NULL){
     palloc_free_page(fn_copy);
-	return TID_ERROR;
+  return TID_ERROR;
   }
   strlcpy(fn_trash, file_name, PGSIZE);
   token = strtok_r(fn_trash, " ", &save_ptr);
@@ -63,7 +63,7 @@ process_execute (const char *file_name)
     return tid;
   }
 
-  struct thread * child = search_by_pid(tid);
+  struct thread * child = search_by_tid(tid);
   if(child == NULL){
     return TID_ERROR;
   }
@@ -72,7 +72,7 @@ process_execute (const char *file_name)
 
   if(!child->is_loaded){
     thread_unblock(child);
-	return TID_ERROR;
+  return TID_ERROR;
   }
 
   struct child_process * child_proc = malloc(sizeof(struct child_process));
@@ -81,7 +81,7 @@ process_execute (const char *file_name)
   child_proc->is_exited = false;
   child_proc->is_waiting = false;
   sema_init(&child_proc->wait_sema, 0);
-  child->ppid = thread_current()->tid;
+  child->parent_tid = thread_current()->tid;
   list_push_back(&thread_current()->child_process_list, &child_proc->elem);
   thread_unblock(child);
 
@@ -149,9 +149,9 @@ process_wait (tid_t child_tid)
   for(e = list_begin(&current_thread->child_process_list); e != list_end(&current_thread->child_process_list); e = list_next(e))
   {
     t = list_entry(e, struct child_process, elem);
-	if(t->pid == child_tid){
-	  break;
-	}
+  if(t->pid == child_tid){
+    break;
+  }
   }
 
   intr_set_level(old_level);
@@ -194,10 +194,10 @@ process_exit (void)
 
   while(!list_empty(&cur->fd_table)){
     struct fd * file_desc = list_entry(list_pop_front(&cur->fd_table), struct fd, elem);
-	lock_acquire(&filesys_lock);
-	file_close(file_desc->file);
-	lock_release(&filesys_lock);
-	free(file_desc);
+  lock_acquire(&filesys_lock);
+  file_close(file_desc->file);
+  lock_release(&filesys_lock);
+  free(file_desc);
   }
 
   /* Destroy the current process's page directory and switch back
@@ -425,7 +425,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* argparse */
   if(!parse_and_stack(file_name, esp)){
-	goto done;
+  goto done;
   }
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -437,6 +437,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if(fn_trash != NULL){
     palloc_free_page(fn_trash);
   }
+  file_close(file);
   lock_release(&filesys_lock);
   return success;
 }
@@ -462,7 +463,7 @@ static bool parse_and_stack(const char * file_name, void ** esp)
   /* argparse */
   for(token = strtok_r(fn_trash, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
     argv[argc] = token;
-	argc++;
+  argc++;
   }
 
   void * arg_addr[argc+1];
@@ -471,18 +472,18 @@ static bool parse_and_stack(const char * file_name, void ** esp)
 
   for(iter = argc-1; iter >= 0; iter--){
     *esp -= strlen(argv[iter]) + 1;
-	memcpy(*esp, argv[iter], strlen(argv[iter]) + 1);
-	arg_addr[iter] = *esp;
+  memcpy(*esp, argv[iter], strlen(argv[iter]) + 1);
+  arg_addr[iter] = *esp;
   }
 
   while((int)*esp % 4 != 0){
     *esp -= 1;
-	*(char *)*esp = (char) 0;
+  *(char *)*esp = (char) 0;
   }
 
   for(iter = argc; iter >= 0; iter--){
     *esp -= 4;
-	memcpy(*esp, &arg_addr[iter], 4);
+  memcpy(*esp, &arg_addr[iter], 4);
   }
 
   int andp_andp_argv = (int) *esp;
