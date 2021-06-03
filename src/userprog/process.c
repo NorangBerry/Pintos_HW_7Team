@@ -437,7 +437,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if(fn_trash != NULL){
     palloc_free_page(fn_trash);
   }
-  file_close(file);
   lock_release(&filesys_lock);
   return success;
 }
